@@ -19,12 +19,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,7 +35,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tictactoemain.ui.theme.TicTacToeMainTheme
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.toObjects
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,11 +52,17 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TicTacToeMainTheme {
-                GameScreen(boardState)
+                LobbyScreen()
             }
         }
     }
 }
+
+data class Player (
+    val id: String = "",
+    var playerName: String = "",
+    var status: String = ""
+)
 
 @Composable
 fun GameScreen(boardState: GameViewModel) {
@@ -99,19 +114,39 @@ fun PlayerCreationScreen(modifier: Modifier = Modifier){
 
 @Composable
 fun LobbyScreen() {
+    val db = Firebase.firestore
+
+    val playerList = remember { MutableStateFlow<List<Player>>(emptyList()) }
+
+    // Retrieves the list of players from the database
+    db.collection("players" ).addSnapshotListener{
+        value, error ->
+        if (error != null) {
+            return@addSnapshotListener
+        }
+
+        if(value != null) {
+            playerList.value = value.toObjects()
+        }
+    }
+
+    val playerCount by playerList.asStateFlow().collectAsStateWithLifecycle()
+
     Column {
         Spacer(modifier = Modifier.height(75.dp))
         Text("Players in Lobby", textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 30.sp, modifier = Modifier.fillMaxWidth())
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
-            items(5) { player -> /* placeholder */
+            items(playerCount) { player -> /* placeholder */
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { /* Handle player selection */ }
                         .padding(8.dp)
+                    ,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Player Name")
+                    Text(player.playerName)
                     Spacer(Modifier.weight(1f))
                     Button(onClick = { /* Handle challenge */ }) {
                         Text("Challenge")
