@@ -1,7 +1,9 @@
 package com.example.tictactoemain
 
+import android.content.ContentValues.TAG
 import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,7 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +46,7 @@ import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.toObjects
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,16 +57,16 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TicTacToeMainTheme {
-                LobbyScreen()
+                PlayerCreationScreen()
             }
         }
     }
 }
 
 data class Player (
+    var available: Boolean = false,
     val id: String = "",
     var playerName: String = "",
-    var status: String = ""
 )
 
 @Composable
@@ -96,6 +101,11 @@ fun GameScreen(boardState: GameViewModel) {
 
 @Composable
 fun PlayerCreationScreen(modifier: Modifier = Modifier){
+    var playerName by remember { mutableStateOf("") }
+    var playerNameError by remember { mutableStateOf("") }
+    val db = Firebase.firestore
+
+
     Column (modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = "Tic Tac Toe", fontWeight = FontWeight.Bold, fontSize = 50.sp)
         Spacer(modifier = Modifier.height(75.dp))
@@ -103,10 +113,29 @@ fun PlayerCreationScreen(modifier: Modifier = Modifier){
         Text(text = "Player Name")
         Spacer(modifier = Modifier.height(25.dp))
         Box {
-            TextField(value = "", onValueChange = {}, placeholder = { Text("Enter player name") })
+            TextField(value = playerName, onValueChange = { playerName = it }, placeholder = { Text("Enter player name") })
         }
+        Text(text = playerNameError)
         Spacer(modifier = Modifier.height(25.dp))
-        Button(onClick = { /*TODO*/ }) {
+        Button(onClick = {
+            if (playerName.isEmpty()) {
+                playerNameError = "Please enter a player name"
+            }
+            if (playerName.length > 15) {
+                playerNameError = "Player name cannot be more than 15 characters"
+            }
+            if (playerName.isNotEmpty() && playerName.length <= 15) {
+                Log.d(TAG, "Player name: $playerName")
+                val player = hashMapOf(
+                    "available" to true,
+                    "playerID" to UUID.randomUUID().toString(),
+                    "playerName" to playerName
+                )
+                db.collection("players").add(player)
+                playerName = ""
+                playerNameError = ""
+            }
+        }) {
             Text(text = "Connect")
         }
     }
