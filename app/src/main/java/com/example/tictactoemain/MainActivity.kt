@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,21 +48,61 @@ import com.google.firebase.firestore.toObjects
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
+import androidx.compose.runtime.State
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 
 class MainActivity : ComponentActivity() {
+    private val gameViewModel: GameViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val boardState by viewModels<GameViewModel>()
-
         setContent {
             TicTacToeMainTheme {
-                PlayerCreationScreen()
+                val navController = rememberNavController()
+                Surface {
+                    var playerId by remember { mutableStateOf<String?>(null) }
+                    NavHost(navController = navController, startDestination = "playerCreationScreen") {
+                        composable(
+                            route = "playerCreationScreen"
+                        ) {
+                            PlayerCreationScreen(
+                                onPlayerCreated = { newPlayerId ->
+                                    playerId = newPlayerId
+                                    navController.navigate("lobbyScreen")
+                                }
+                            )
+                        }
+                        composable(route = "lobbyScreen") {
+                            if (playerId != null) {
+                                val challengeManager = ChallengeManager( Firebase.firestore, playerId!!, gameViewModel)
+                                LobbyScreen(playerId?: "", challengeManager)
+                            }
+                        }
+
+                    }
+                }
             }
         }
     }
 }
+
+data class Game(
+    var boardState: Map<String, List<String>> = mapOf(
+        "0" to listOf("", "", ""),
+        "1" to listOf("", "", ""),
+        "2" to listOf("", "", "")
+    ),
+    var currentPlayerTurn: String = "X",
+    var gameId: String = "",
+    var gameStatus: String = "ongoing",
+    var player1: String = "",
+    var player2: String = "",
+
+)
 
 data class Player (
     var available: Boolean = false,
@@ -70,14 +111,14 @@ data class Player (
 )
 
 @Composable
-fun GameScreen(boardState: GameViewModel) {
+fun GameScreen(game: State<Game> ,boardState: GameViewModel) {
 
     val borderColor = MaterialTheme.colorScheme.onSurface
     Column(
         Modifier
             .fillMaxSize()
             .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Current Player's Turn: Tom") /* placeholder, replace with actual player */
+        Text("Current Player's Turn: ${game.value.currentPlayerTurn}")
         Spacer(Modifier.height(16.dp))
         for (y in 0..2) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -91,7 +132,7 @@ fun GameScreen(boardState: GameViewModel) {
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(boardState.boardState[y][x])
+                        Text(game.value.boardState[y.toString()]?.getOrNull(x) ?: "")
                     }
                 }
             }
@@ -100,7 +141,7 @@ fun GameScreen(boardState: GameViewModel) {
 }
 
 @Composable
-fun PlayerCreationScreen(modifier: Modifier = Modifier){
+fun PlayerCreationScreen(onPlayerCreated: (String) -> Unit,modifier: Modifier = Modifier){
     var playerName by remember { mutableStateOf("") }
     var playerNameError by remember { mutableStateOf("") }
     val db = Firebase.firestore
@@ -125,15 +166,16 @@ fun PlayerCreationScreen(modifier: Modifier = Modifier){
                 playerNameError = "Player name cannot be more than 15 characters"
             }
             if (playerName.isNotEmpty() && playerName.length <= 15) {
-                Log.d(TAG, "Player name: $playerName")
-                val player = hashMapOf(
-                    "available" to true,
-                    "playerID" to UUID.randomUUID().toString(),
-                    "playerName" to playerName
-                )
-                db.collection("players").add(player)
-                playerName = ""
-                playerNameError = ""
+                val playerId = UUID.randomUUID().toString()
+                val player = Player( available = true ,id = playerId, playerName = playerName)
+                db.collection("players").document(playerId).set(player)
+                    .addOnSuccessListener {
+                        Log.d("PlayerCreationScreen", "Player created successfully!")
+                        onPlayerCreated(playerId)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.w("PlayerCreationScreen", "Error creating player", e)
+                    }
             }
         }) {
             Text(text = "Connect")
@@ -142,12 +184,12 @@ fun PlayerCreationScreen(modifier: Modifier = Modifier){
 }
 
 @Composable
-fun LobbyScreen() {
+fun LobbyScreen(playerId: String, challengeManager: ChallengeManager) {
     val db = Firebase.firestore
 
     val playerList = remember { MutableStateFlow<List<Player>>(emptyList()) }
 
-    // Retrieves the list of players from the database
+    // retrieves the list of players from the database
     db.collection("players" ).addSnapshotListener{
         value, error ->
         if (error != null) {
@@ -161,29 +203,101 @@ fun LobbyScreen() {
 
     val playerCount by playerList.asStateFlow().collectAsStateWithLifecycle()
 
+    //challenge State
+    val challenge = challengeManager.challenge.value
+    var showDialog by remember { mutableStateOf(false) }
+
+
+    //start listening for challenges when the screen is displayed
+    challengeManager.listenToChallenges()
+
+    //show the dialog when a challenge is received
+    showDialog = challenge != null
+
     Column {
         Spacer(modifier = Modifier.height(75.dp))
-        Text("Players in Lobby", textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 30.sp, modifier = Modifier.fillMaxWidth())
+        Text(
+            "Players in Lobby",
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Bold,
+            fontSize = 30.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
-            items(playerCount) { player -> /* placeholder */
+            items(playerCount.filter { it.id != playerId }) { player ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { /* Handle player selection */ }
-                        .padding(8.dp)
-                    ,
+                        .clickable { /* handle player selection, wont really need to do anything here */ }
+                        .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(player.playerName)
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { /* Handle challenge */ }) {
+                    Button(onClick = {
+                        // send a challenge to the selected player
+                        challengeManager.sendChallenge(player.id)
+                    }) {
                         Text("Challenge")
                     }
                 }
             }
         }
     }
+
+    //show the dialog if a challenge is pending
+    if (showDialog && challenge != null) {
+        ChallengeDialog(
+            challengerId = challenge.challengerId,
+            onAccept = {
+                challengeManager.acceptChallenge(challenge.challengeId, challenge.challengedId)
+                showDialog = false
+            },
+            onDeny = {
+                challengeManager.denyChallenge(challenge.challengeId)
+                showDialog = false
+            },
+            onDismiss = {
+                showDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun ChallengeDialog(
+    challengerId: String,
+    onAccept: () -> Unit,
+    onDeny: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val playerName = remember { mutableStateOf("") }
+
+    val db = Firebase.firestore
+    val playerDoc = db.collection("players").document(challengerId)
+    playerDoc.get().addOnSuccessListener {
+        val player = it.getString("playerName")
+        playerName.value = player ?: ""
+    }
+
+
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Challenge Received") },
+        text = { Text(text = "Challenged by: ${playerName.value}") },
+        confirmButton = {
+            Button(onClick = onAccept) {
+                Text(text = "Accept")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDeny) {
+                Text(text = "Deny")
+            }
+        }
+    )
 }
 
 
@@ -203,7 +317,7 @@ fun LobbyScreen() {
 fun GridPreview() {
     TicTacToeMainTheme {
         Surface {
-            GameScreen(GameViewModel())
+            GameScreen( game = remember { mutableStateOf(Game()) }, boardState = GameViewModel())
         }
     }
 }
@@ -224,7 +338,7 @@ fun GridPreview() {
 fun PlayerCreationScreenPreview() {
     TicTacToeMainTheme {
         Surface {
-            PlayerCreationScreen()
+            PlayerCreationScreen( onPlayerCreated = {})
         }
     }
 }
@@ -245,7 +359,7 @@ fun PlayerCreationScreenPreview() {
 fun LobbyScreenPreview() {
     TicTacToeMainTheme {
         Surface {
-            LobbyScreen()
+            LobbyScreen( "", ChallengeManager(Firebase.firestore, "", GameViewModel()))
         }
     }
 }
