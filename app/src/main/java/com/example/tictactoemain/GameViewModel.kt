@@ -5,11 +5,12 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.NavHostController
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.launch
 
-class GameViewModel : ViewModel(){
+class GameViewModel : ViewModel() {
 
     // Using _ to separate between private and public read-able variables
 
@@ -48,7 +49,6 @@ class GameViewModel : ViewModel(){
 
     private val _game = mutableStateOf(Game())
     val game: State<Game> = _game
-
 
     private fun updateGameState(game: Game) {
         // Update current player
@@ -182,6 +182,42 @@ class GameViewModel : ViewModel(){
             7 -> game.boardState["2"]?.get(1) ?: ""
             8 -> game.boardState["2"]?.get(2) ?: ""
             else -> ""
+        }
+    }
+
+    fun initializeGame(gameId: String, playerId: String) {
+        this.gameId = gameId
+        this.playerId = playerId
+    }
+
+    fun createGame(challengeId: String, challengedId: String) {
+        viewModelScope.launch {
+            db.collection("challenges").document(challengeId).get().addOnSuccessListener {
+                val challenge = it.toObject(ChallengeManager.Challenge::class.java)
+                if (challenge != null) {
+                    val gameId = challenge.gameId
+                    val player1 = challenge.challengerId
+                    val player2 = challengedId
+
+                    val newGame = Game(
+                        gameId = gameId,
+                        player1 = player1,
+                        player2 = player2,
+                        currentPlayerTurn = "X"
+                    )
+
+                    db.collection("games").document(gameId).set(newGame)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                Log.d("GameViewModel", "Document successfully written!")
+                                initializeGame(gameId, challengedId)
+
+                            } else {
+                                Log.w("GameViewModel", "Error writing document")
+                            }
+                        }
+                }
+            }
         }
     }
 }

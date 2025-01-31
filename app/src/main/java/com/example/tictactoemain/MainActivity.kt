@@ -1,6 +1,5 @@
 package com.example.tictactoemain
 
-import android.content.ContentValues.TAG
 import android.content.res.Configuration
 import android.os.Bundle
 import android.util.Log
@@ -49,12 +48,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import androidx.compose.runtime.State
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
 class MainActivity : ComponentActivity() {
-    private val gameViewModel: GameViewModel by viewModels()
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,11 +78,18 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(route = "lobbyScreen") {
                             if (playerId != null) {
-                                val challengeManager = ChallengeManager( Firebase.firestore, playerId!!, gameViewModel)
-                                LobbyScreen(playerId?: "", challengeManager)
+                                val challengeManager = ChallengeManager(Firebase.firestore, playerId!!, navController)
+                                LobbyScreen(playerId = playerId!!, challengeManager = challengeManager, navController = navController, gameManager = GameViewModel())
                             }
                         }
 
+                        composable("gameScreen/{gameId}/{playerId}") { backStackEntry ->
+                            val gameId = backStackEntry.arguments?.getString("gameId")
+                            val playerId = backStackEntry.arguments?.getString("playerId")
+                            if (gameId != null && playerId != null) {
+                                GameScreen(boardState = GameViewModel())
+                            }
+                        }
                     }
                 }
             }
@@ -111,14 +118,14 @@ data class Player (
 )
 
 @Composable
-fun GameScreen(game: State<Game> ,boardState: GameViewModel) {
+fun GameScreen(boardState: GameViewModel) {
 
     val borderColor = MaterialTheme.colorScheme.onSurface
     Column(
         Modifier
             .fillMaxSize()
             .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Current Player's Turn: ${game.value.currentPlayerTurn}")
+        Text("Current Player's Turn: ${boardState.currentPlayer.value}")
         Spacer(Modifier.height(16.dp))
         for (y in 0..2) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -132,7 +139,7 @@ fun GameScreen(game: State<Game> ,boardState: GameViewModel) {
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(game.value.boardState[y.toString()]?.getOrNull(x) ?: "")
+                        Text(boardState.game.value.boardState[y.toString()]?.get(x) ?: "")
                     }
                 }
             }
@@ -184,9 +191,8 @@ fun PlayerCreationScreen(onPlayerCreated: (String) -> Unit,modifier: Modifier = 
 }
 
 @Composable
-fun LobbyScreen(playerId: String, challengeManager: ChallengeManager) {
+fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navController: NavHostController, gameManager: GameViewModel) {
     val db = Firebase.firestore
-
     val playerList = remember { MutableStateFlow<List<Player>>(emptyList()) }
 
     // retrieves the list of players from the database
@@ -207,7 +213,7 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager) {
     val challenge = challengeManager.challenge.value
     var showDialog by remember { mutableStateOf(false) }
 
-
+    challengeManager.listenForChallengeUpdates(gameManager)
     //start listening for challenges when the screen is displayed
     challengeManager.listenToChallenges()
 
@@ -251,7 +257,12 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager) {
         ChallengeDialog(
             challengerId = challenge.challengerId,
             onAccept = {
-                challengeManager.acceptChallenge(challenge.challengeId, challenge.challengedId)
+                val challenge = challengeManager.challenge.value
+                if (challenge != null) {
+                    gameManager.createGame(challenge.gameId, playerId)
+                    challengeManager.acceptChallenge(challenge.challengeId)
+                    navController.navigate("gameScreen/${challenge.gameId}/${playerId}")
+                }
                 showDialog = false
             },
             onDeny = {
@@ -260,7 +271,7 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager) {
             },
             onDismiss = {
                 showDialog = false
-            }
+            },
         )
     }
 }
@@ -270,7 +281,7 @@ fun ChallengeDialog(
     challengerId: String,
     onAccept: () -> Unit,
     onDeny: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val playerName = remember { mutableStateOf("") }
 
@@ -317,7 +328,7 @@ fun ChallengeDialog(
 fun GridPreview() {
     TicTacToeMainTheme {
         Surface {
-            GameScreen( game = remember { mutableStateOf(Game()) }, boardState = GameViewModel())
+            GameScreen( boardState = GameViewModel())
         }
     }
 }
@@ -342,7 +353,7 @@ fun PlayerCreationScreenPreview() {
         }
     }
 }
-
+/*
 @Preview(
     showBackground = true,
     widthDp = 411,
@@ -355,11 +366,13 @@ fun PlayerCreationScreenPreview() {
     heightDp = 891,
     uiMode = Configuration.UI_MODE_NIGHT_YES,
 )
+
 @Composable
 fun LobbyScreenPreview() {
     TicTacToeMainTheme {
         Surface {
-            LobbyScreen( "", ChallengeManager(Firebase.firestore, "", GameViewModel()))
+            LobbyScreen(playerId = "", ChallengeManager(Firebase.firestore, "", GameViewModel()), navController = rememberNavController())
         }
     }
 }
+ */
