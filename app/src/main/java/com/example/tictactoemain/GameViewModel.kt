@@ -5,8 +5,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.NavHostController
 import com.google.firebase.Firebase
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.launch
 
@@ -44,7 +44,9 @@ class GameViewModel : ViewModel() {
     private var gameId: String = ""
     private var playerId: String = ""
 
-    private val _isMyTurn = mutableStateOf(false)
+    private var gameListener: ListenerRegistration? = null
+
+    private val _isMyTurn = mutableStateOf(true)
     val isMyTurn: State<Boolean> = _isMyTurn
 
     private val _game = mutableStateOf(Game())
@@ -77,11 +79,18 @@ class GameViewModel : ViewModel() {
     }
 
     fun makeMove(row: Int, col: Int) {
+        Log.d("GameViewModel", "makeMove: called")
+        Log.d("GameViewModel", "makeMove: gameId = $gameId")
+        if (gameId.isEmpty()) {
+            Log.e("GameViewModel", "makeMove: gameId is empty!")
+            return
+        }
         val boardState = _game.value.boardState
         val rowKey = row.toString()
         val currentRow = boardState[rowKey]
-
+        Log.d("GameViewModel", "Is my turn: ${_isMyTurn.value}")
         if (_isMyTurn.value && currentRow?.getOrNull(col) == "" && _gameStatus.value == GameStatus.ONGOING) {
+            Log.d("GameViewModel", "Making move at row $row, col $col")
             // Create a new list with the updated row
             val newBoardState = boardState.toMutableMap()
             val newRow = currentRow.toMutableList()
@@ -91,8 +100,14 @@ class GameViewModel : ViewModel() {
             // Update the game state in Firestore
             val updatedGame = _game.value.copy(
                 boardState = newBoardState,
-                currentPlayerTurn = if (_currentPlayer.value == "X") "O" else "X"
+                currentPlayerTurn = if (_currentPlayer.value == "X") "O" else "X",
+                player1 = _game.value.player1,
+                player2 = _game.value.player2,
+                gameId = gameId
             )
+            _game.value = updatedGame
+            updateGameState(updatedGame)
+            Log.d("GameViewModel", "updated game state: $updatedGame")
 
             checkWin(updatedGame)
 
@@ -111,6 +126,8 @@ class GameViewModel : ViewModel() {
     }
 
     private fun checkWin(game: Game) {
+        Log.d("GameViewModel", "checkWin: Called")
+        Log.d("GameViewModel", "checkWin: gameId = $gameId")
         for (combination in WinningCombination.values()) {
             val firstCell = getCellValue(combination.indices[0], game)
 
@@ -140,6 +157,8 @@ class GameViewModel : ViewModel() {
     }
 
     private fun checkDraw(game: Game) {
+        Log.d("GameViewModel", "checkDraw: Called")
+        Log.d("GameViewModel", "checkDraw: gameId = $gameId")
         var isDraw = true
         for (row in game.boardState.values) {
             for (cell in row) {
@@ -186,11 +205,14 @@ class GameViewModel : ViewModel() {
     }
 
     fun initializeGame(gameId: String, playerId: String) {
+        Log.d("GameViewModel", "initializeGame: Called with gameId = $gameId, playerId = $playerId")
         this.gameId = gameId
         this.playerId = playerId
+        startListeningForGameChanges()
     }
 
     fun createGame(challengeId: String, challengedId: String) {
+        Log.d("GameViewModel", "createGame: Called")
         viewModelScope.launch {
             db.collection("challenges").document(challengeId).get().addOnSuccessListener {
                 val challenge = it.toObject(ChallengeManager.Challenge::class.java)
@@ -205,7 +227,7 @@ class GameViewModel : ViewModel() {
                         player2 = player2,
                         currentPlayerTurn = "X"
                     )
-
+                    Log.d("GameViewModel", "createGame: gameId = $gameId")
                     db.collection("games").document(gameId).set(newGame)
                         .addOnCompleteListener { task ->
                             if (task.isSuccessful) {
@@ -216,8 +238,31 @@ class GameViewModel : ViewModel() {
                                 Log.w("GameViewModel", "Error writing document")
                             }
                         }
+                    Log.d("GameViewModel", "createGame: gameId = $gameId")
                 }
             }
         }
+    }
+
+    private fun startListeningForGameChanges() {
+        gameListener = db.collection("games").document(gameId)
+            .addSnapshotListener { snapshot, e ->
+                Log.d("GameViewModel", "Firestore listener triggered")
+                if (e != null) {
+                    Log.w("GameViewModel", "Listen failed.", e)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    Log.d("GameViewModel", "Firestore listener: Snapshot exists")
+                    val game = snapshot.toObject(Game::class.java)
+                    if (game != null) {
+                        Log.d("GameViewModel", "Firestore listener: Game data received: $game")
+                        updateGameState(game)
+                    }
+                } else {
+                    Log.d("GameViewModel", "current data: null")
+                }
+            }
     }
 }

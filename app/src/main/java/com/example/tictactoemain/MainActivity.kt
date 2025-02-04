@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TicTacToeMainTheme {
                 val navController = rememberNavController()
+                val gameViewModel: GameViewModel by viewModels()
                 Surface {
                     var playerId by remember { mutableStateOf<String?>(null) }
                     NavHost(navController = navController, startDestination = "playerCreationScreen") {
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
                         composable(route = "lobbyScreen") {
                             if (playerId != null) {
                                 val challengeManager = ChallengeManager(Firebase.firestore, playerId!!, navController)
-                                LobbyScreen(playerId = playerId!!, challengeManager = challengeManager, navController = navController, gameManager = GameViewModel())
+                                LobbyScreen(playerId = playerId!!, challengeManager = challengeManager, navController = navController, gameViewModel = gameViewModel)
                             }
                         }
 
@@ -87,7 +88,7 @@ class MainActivity : ComponentActivity() {
                             val gameId = backStackEntry.arguments?.getString("gameId")
                             val playerId = backStackEntry.arguments?.getString("playerId")
                             if (gameId != null && playerId != null) {
-                                GameScreen(boardState = GameViewModel())
+                                GameScreen(boardState = gameViewModel)
                             }
                         }
                     }
@@ -135,6 +136,7 @@ fun GameScreen(boardState: GameViewModel) {
                             .size(100.dp)
                             .border(1.dp, borderColor)
                             .clickable {
+                                Log.d("GameScreen", "Square clicked: ($y, $x)")
                                 boardState.makeMove(y, x)
                             },
                         contentAlignment = Alignment.Center
@@ -191,18 +193,17 @@ fun PlayerCreationScreen(onPlayerCreated: (String) -> Unit,modifier: Modifier = 
 }
 
 @Composable
-fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navController: NavHostController, gameManager: GameViewModel) {
+fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navController: NavHostController, gameViewModel: GameViewModel) {
     val db = Firebase.firestore
     val playerList = remember { MutableStateFlow<List<Player>>(emptyList()) }
 
     // retrieves the list of players from the database
-    db.collection("players" ).addSnapshotListener{
-        value, error ->
+    db.collection("players").addSnapshotListener { value, error ->
         if (error != null) {
             return@addSnapshotListener
         }
 
-        if(value != null) {
+        if (value != null) {
             playerList.value = value.toObjects()
         }
     }
@@ -213,8 +214,8 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navControl
     val challenge = challengeManager.challenge.value
     var showDialog by remember { mutableStateOf(false) }
 
-    challengeManager.listenForChallengeUpdates(gameManager)
     //start listening for challenges when the screen is displayed
+    challengeManager.listenForChallengeUpdates(gameViewModel)
     challengeManager.listenToChallenges()
 
     //show the dialog when a challenge is received
@@ -259,8 +260,7 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navControl
             onAccept = {
                 val challenge = challengeManager.challenge.value
                 if (challenge != null) {
-                    gameManager.createGame(challenge.gameId, playerId)
-                    challengeManager.acceptChallenge(challenge.challengeId)
+                    challengeManager.acceptChallenge(challenge.challengeId, gameViewModel)
                     navController.navigate("gameScreen/${challenge.gameId}/${playerId}")
                 }
                 showDialog = false

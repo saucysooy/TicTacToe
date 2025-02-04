@@ -57,6 +57,7 @@ class ChallengeManager(
                         val status = doc.getString("status")
                         val gameId = doc.getString("gameId")
                         if (status == "accepted" && gameId != null) {
+                            Log.d("ChallengeManager", "listenForChallengeUpdates: gameId = $gameId")
                             navController.navigate("gameScreen/$gameId/$playerId")
                             gameManager.initializeGame(gameId, playerId)
                         }
@@ -82,13 +83,15 @@ class ChallengeManager(
             }
     }
 
-    fun acceptChallenge(challengeId: String) {
+    fun acceptChallenge(challengeId: String, gameManager: GameViewModel) {
         val challenge = challenge.value
         if (challenge != null) {
             db.collection("challenges").document(challengeId)
                 .update("status", "accepted")
                 .addOnSuccessListener {
-                    Log.d("ChallengeManager", "Challenge accepted!")
+                    Log.d("ChallengeManager", "Challenge accepted! gameId = ${challenge.gameId}")
+                    gameManager.createGame(challenge.challengeId, playerId)
+                    gameManager.initializeGame(challenge.gameId, playerId)
                 }
                 .addOnFailureListener { e ->
                     Log.e("ChallengeManager", "Error accepting challenge", e)
