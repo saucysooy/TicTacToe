@@ -1,6 +1,7 @@
 package com.example.tictactoemain
 
 import android.content.res.Configuration
+import android.icu.text.SymbolTable
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -28,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,38 +101,47 @@ class MainActivity : ComponentActivity() {
 }
 
 data class Game(
-    var boardState: Map<String, List<String>> = mapOf(
+    val boardState: Map<String, List<String>> = mapOf(
         "0" to listOf("", "", ""),
         "1" to listOf("", "", ""),
         "2" to listOf("", "", "")
     ),
-    var currentPlayerTurn: String = "X",
-    var gameId: String = "",
-    var gameStatus: String = "ongoing",
-    var player1: String = "",
-    var player2: String = "",
-
+    val currentPlayerTurn: String = "",
+    val gameId: String = "",
+    val gameStatus: String = "ongoing",
+    val player1: String = "",
+    val player2: String = "",
+    val player1Name: String = "",
+    val player2Name: String = "",
 )
 
 data class Player (
-    var available: Boolean = false,
-    val id: String = "",
-    var playerName: String = "",
+    val available: Boolean = true,
+    val playerId: String = "",
+    val playerName: String = "",
 )
 
 @Composable
 fun GameScreen(boardState: GameViewModel) {
-
     val borderColor = MaterialTheme.colorScheme.onSurface
+    val currentPlayer = if (boardState.currentPlayer.value == "X") boardState.playerName.value else boardState.opponentName.value
+    val game = boardState.game.value
+
+    Log.d("GameScreen", "GameScreen When they loaded in: $game")
+
     Column(
         Modifier
             .fillMaxSize()
-            .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Current Player's Turn: ${boardState.currentPlayer.value}")
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Current Player's Turn: $currentPlayer")
         Spacer(Modifier.height(16.dp))
         for (y in 0..2) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 for (x in 0..2) {
+                    val cellValue = game.boardState[y.toString()]?.get(x) ?: ""
                     Box(
                         Modifier
                             .size(100.dp)
@@ -141,7 +152,7 @@ fun GameScreen(boardState: GameViewModel) {
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(boardState.game.value.boardState[y.toString()]?.get(x) ?: "")
+                        Text(text = cellValue)
                     }
                 }
             }
@@ -176,7 +187,7 @@ fun PlayerCreationScreen(onPlayerCreated: (String) -> Unit,modifier: Modifier = 
             }
             if (playerName.isNotEmpty() && playerName.length <= 15) {
                 val playerId = UUID.randomUUID().toString()
-                val player = Player( available = true ,id = playerId, playerName = playerName)
+                val player = Player( available = true ,playerId = playerId, playerName = playerName)
                 db.collection("players").document(playerId).set(player)
                     .addOnSuccessListener {
                         Log.d("PlayerCreationScreen", "Player created successfully!")
@@ -232,7 +243,7 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navControl
         )
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
-            items(playerCount.filter { it.id != playerId }) { player ->
+            items(playerCount.filter { it.playerId != playerId }) { player ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -244,7 +255,7 @@ fun LobbyScreen(playerId: String, challengeManager: ChallengeManager, navControl
                     Spacer(Modifier.weight(1f))
                     Button(onClick = {
                         // send a challenge to the selected player
-                        challengeManager.sendChallenge(player.id)
+                        challengeManager.sendChallenge(player.playerId)
                     }) {
                         Text("Challenge")
                     }
